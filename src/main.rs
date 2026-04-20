@@ -1,60 +1,70 @@
 use std::io;
 
-use crossterm::{
-    event::{self, Event, KeyCode},
-    terminal::{disable_raw_mode, enable_raw_mode},
-};
-
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{
-    backend::CrosstermBackend,
-    Terminal,
-    widgets::{Block, Borders, Paragraph},
-    layout::{Layout, Constraint, Direction},
+    buffer::Buffer,
+    layout::Rect,
+    symbols::border,
+    text::{Line, Text},
+    widgets::{Block, Paragraph, Widget},
+    DefaultTerminal, Frame,
 };
 
-fn main() -> Result<(), io::Error>{
-    enable_raw_mode()?;
-    let mut stdout = io::stdout();
-    let backend = CrosstermBackend::new(&mut stdout);
-    let mut terminal = Terminal::new(backend)?;
+fn main() -> io::Result<()> {
+    ratatui::run(|terminal| App::default().run(terminal))
+}
 
-    let mut counter = 0;
+#[derive(Debug, Default)]
+pub struct App {
+    exit: bool,
+}
 
-    terminal.clear().expect("Failed to CLSSCR");
+impl App {
+    pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
+        while !self.exit {
+            terminal.draw(|frame| self.draw(frame))?;
+            self.handle_events()?;
+        }
 
-    loop {
-        terminal.draw(|f| {
-            let size = f.area();
+        Ok(())
+    }
 
-            let chunks = Layout::default()
-                .direction(Direction::Vertical)
-                .constraints([
-                    Constraint::Percentage(100),
-                ])
-                .split(size);
+    fn draw(&self, frame: &mut Frame){
+        frame.render_widget(self, frame.area());
+    }
 
-            let block = Block::default()
-                .title("Testing the TUI - Press q to quit")
-                .borders(Borders::ALL);
-
-            let paragraph = Paragraph::new(format!("Counter: {}", counter)).block(block);
-
-            f.render_widget(paragraph, chunks[0]);
-        })?;
-
-        // Handle input
-        if let Event::Key(key) = event::read()? {
-            if key.code == KeyCode::Char('q') {
-                terminal.clear().expect("Failed to CLSSCR");
-                break;
+    fn handle_events(&mut self) -> io::Result<()>{
+        match event::read()? {
+            Event::Key(key_event) if key_event.kind == KeyEventKind::Press => {
+                self.handle_key_event(key_event)
             }
+            _ => {}
+        }
+        Ok(())
+    }
 
-            if key.code == KeyCode::Char('e'){
-                counter += 1;
-            }
+    fn handle_key_event(&mut self, key_event: KeyEvent){
+        match key_event.code {
+            KeyCode::Char('q') => self.exit(),
+            _ => {}
         }
     }
 
-    disable_raw_mode()?;
-    Ok(())
+    fn exit(&mut self) {
+        self.exit = true;
+    }
+}
+
+impl Widget for &App {
+    fn render(self, area: Rect, buf: &mut Buffer) {
+        let title = Line::from(" Email Client ");
+        let block = Block::bordered()
+            .title(title)
+            .title_bottom(" Bottom Text - Press q to quit")
+            .border_set(border::THICK);
+        Paragraph::new(Text::from("This is some filler text here. "))
+            .centered()
+            .block(block)
+            .render(area, buf);
+    }
 }

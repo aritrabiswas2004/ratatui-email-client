@@ -104,6 +104,28 @@ impl App {
         }
     }
 
+    pub fn new_for_testonly() -> Self {
+        let (tx, rx) = channel();
+        
+        Self {
+            exit: false,
+            gmail: GmailClient {
+                client: reqwest::blocking::Client::new(),
+                access_token: String::new(),
+                sender_email: "test@example.com".into(),
+            },
+            inbox: vec![],
+            selected: 0,
+            selected_thread: None,
+            view: View::Loading("Loading inbox...".into()),
+            status: "Press r to load mail, q to quit.".into(),
+            compose: None,
+            pending: None,
+            tx,
+            rx,
+        }
+    }
+
     pub fn run(&mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
         self.request_inbox();
 
@@ -738,9 +760,7 @@ mod tests {
 
     #[test]
     fn selection_clamps_to_inbox_bounds() {
-        let mut app = App::new(
-            GmailClient::new("token".into()).expect("test GmailClient init should succeed"),
-        );
+        let mut app = App::new_for_testonly();
         app.inbox = vec![thread_summary("1", "One"), thread_summary("2", "Two")];
 
         app.move_selection(1);
@@ -753,9 +773,7 @@ mod tests {
 
     #[test]
     fn cancel_compose_returns_to_origin_view() {
-        let mut app = App::new(
-            GmailClient::new("token".into()).expect("test GmailClient init should succeed"),
-        );
+        let mut app = App::new_for_testonly();
         app.selected_thread = Some(ThreadDetail {
             id: "thread".into(),
             subject: "Subject".into(),

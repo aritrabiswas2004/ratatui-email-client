@@ -16,6 +16,7 @@ use ratatui::{
 
 use crate::{
     gmail::GmailClient,
+    logging,
     models::{ComposeDraft, ThreadDetail, ThreadSummary},
 };
 
@@ -92,6 +93,24 @@ impl App {
             exit: false,
             gmail,
             inbox: Vec::new(),
+            selected: 0,
+            selected_thread: None,
+            view: View::Loading("Loading inbox...".into()),
+            status: "Press r to load mail, q to quit.".into(),
+            compose: None,
+            pending: None,
+            tx,
+            rx,
+        }
+    }
+
+    pub fn new_for_testonly() -> Self {
+        let (tx, rx) = channel();
+        
+        Self {
+            exit: false,
+            gmail: GmailClient::new_stub(),
+            inbox: vec![],
             selected: 0,
             selected_thread: None,
             view: View::Loading("Loading inbox...".into()),
@@ -187,7 +206,13 @@ impl App {
     }
 
     fn handle_key_event(&mut self, key_event: KeyEvent) {
+        logging::info(&format!(
+            "KEY_PRESS view={:?} code={:?} modifiers={:?}",
+            self.view, key_event.code, key_event.modifiers
+        ));
+
         if self.compose.is_some() {
+            logging::info("ACTION handle_compose_key");
             self.handle_compose_key(key_event);
             return;
         }
@@ -239,10 +264,24 @@ impl App {
     }
 
     fn handle_compose_key(&mut self, key_event: KeyEvent) {
+        let is_ctrl_s = matches!(key_event.code, KeyCode::Char('s') | KeyCode::Char('S'))
+            && key_event.modifiers.contains(KeyModifiers::CONTROL);
+
+        if is_ctrl_s {
+            logging::info("ACTION send_compose via Ctrl+S variant");
+            self.send_compose();
+            return;
+        }
+
+        if matches!(key_event.code, KeyCode::Char('|')) {
+            logging::info("ACTION send_compose via '|'");
+            self.send_compose();
+            return;
+        }
+
         match (key_event.code, key_event.modifiers) {
             (KeyCode::Char('q'), _) => self.exit = true,
             (KeyCode::Esc, _) => self.cancel_compose(),
-            (KeyCode::Char('s'), KeyModifiers::CONTROL) => self.send_compose(),
             (KeyCode::Tab, _) | (KeyCode::Enter, _)
                 if self
                     .compose
@@ -250,11 +289,13 @@ impl App {
                     .map(|compose| compose.field != ComposeField::Body)
                     .unwrap_or(false) =>
             {
+                logging::info("ACTION compose field next");
                 if let Some(compose) = self.compose.as_mut() {
                     compose.field = compose.field.next();
                 }
             }
             (KeyCode::BackTab, _) => {
+                logging::info("ACTION compose field previous");
                 if let Some(compose) = self.compose.as_mut() {
                     compose.field = compose.field.previous();
                 }
@@ -266,24 +307,37 @@ impl App {
 
                 match (key_event.code, key_event.modifiers) {
                     (KeyCode::Enter, _) => {
+                        logging::info("ACTION compose body newline");
                         compose.draft.body.push('\n');
                     }
-                    (KeyCode::Backspace, _) => match compose.field {
-                        ComposeField::To => {
-                            compose.draft.to.pop();
+                    (KeyCode::Backspace, _) => {
+                        logging::info("ACTION compose backspace");
+                        match compose.field {
+                            ComposeField::To => {
+                                compose.draft.to.pop();
+                            }
+                            ComposeField::Subject => {
+                                compose.draft.subject.pop();
+                            }
+                            ComposeField::Body => {
+                                compose.draft.body.pop();
+                            }
                         }
-                        ComposeField::Subject => {
-                            compose.draft.subject.pop();
-                        }
-                        ComposeField::Body => {
-                            compose.draft.body.pop();
-                        }
-                    },
+                    }
                     (KeyCode::Char(ch), KeyModifiers::NONE)
                     | (KeyCode::Char(ch), KeyModifiers::SHIFT) => match compose.field {
-                        ComposeField::To => compose.draft.to.push(ch),
-                        ComposeField::Subject => compose.draft.subject.push(ch),
-                        ComposeField::Body => compose.draft.body.push(ch),
+                        ComposeField::To => {
+                            logging::info("ACTION compose type To");
+                            compose.draft.to.push(ch);
+                        }
+                        ComposeField::Subject => {
+                            logging::info("ACTION compose type Subject");
+                            compose.draft.subject.push(ch);
+                        }
+                        ComposeField::Body => {
+                            logging::info("ACTION compose type Body");
+                            compose.draft.body.push(ch);
+                        }
                     },
                     _ => {}
                 }
@@ -390,15 +444,20 @@ impl App {
     }
 
     fn send_compose(&mut self) {
+        logging::info("ACTION send_compose invoked");
+
         if self.pending.is_some() {
+            logging::warn("ACTION send_compose skipped because pending request exists");
             return;
         }
 
         let Some(compose) = self.compose.clone() else {
+            logging::warn("ACTION send_compose skipped because compose state missing");
             return;
         };
 
         if compose.draft.to.trim().is_empty() {
+            logging::warn("ACTION send_compose blocked: To field is empty");
             self.status = "The To field is required.".into();
             if let Some(current) = self.compose.as_mut() {
                 current.error = Some("The To field is required.".into());
@@ -414,10 +473,12 @@ impl App {
         self.view = View::Loading("Sending message...".into());
         self.status = "Sending message...".into();
         self.pending = Some(Request::Send);
+        logging::info("ACTION send_compose queued async Gmail send request");
 
         let gmail = self.gmail.clone();
         let tx = self.tx.clone();
         thread::spawn(move || {
+            logging::info("ACTION async send thread started");
             let result = gmail
                 .send_message(&compose.draft)
                 .map_err(|err| err.to_string());
@@ -548,7 +609,7 @@ impl App {
 
         lines.push(Line::from(""));
         lines.push(Line::from(
-            "Tab/Enter move fields, Ctrl+S sends, Esc cancels, q quits.",
+            "Tab/Enter move fields, Ctrl+S or F5 sends, Esc cancels, q quits.",
         ));
 
         if let Some(error) = compose.and_then(|compose| compose.error.as_deref()) {
@@ -661,12 +722,20 @@ fn render_thread_text(thread: &ThreadDetail) -> Text<'static> {
 }
 
 fn truncate(value: &str, limit: usize) -> String {
-    let mut text = value.trim().to_string();
-    if text.len() > limit {
-        text.truncate(limit.saturating_sub(1));
-        text.push('…');
+    let text = value.trim();
+    let char_count = text.chars().count();
+
+    if char_count <= limit {
+        return text.to_string();
     }
-    text
+
+    if limit == 0 {
+        return String::new();
+    }
+
+    let mut truncated: String = text.chars().take(limit.saturating_sub(1)).collect();
+    truncated.push('…');
+    truncated
 }
 
 #[cfg(test)]
@@ -687,7 +756,7 @@ mod tests {
 
     #[test]
     fn selection_clamps_to_inbox_bounds() {
-        let mut app = App::new(GmailClient::new("token".into()));
+        let mut app = App::new_for_testonly();
         app.inbox = vec![thread_summary("1", "One"), thread_summary("2", "Two")];
 
         app.move_selection(1);
@@ -700,7 +769,7 @@ mod tests {
 
     #[test]
     fn cancel_compose_returns_to_origin_view() {
-        let mut app = App::new(GmailClient::new("token".into()));
+        let mut app = App::new_for_testonly();
         app.selected_thread = Some(ThreadDetail {
             id: "thread".into(),
             subject: "Subject".into(),

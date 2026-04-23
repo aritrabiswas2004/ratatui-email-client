@@ -661,12 +661,20 @@ fn render_thread_text(thread: &ThreadDetail) -> Text<'static> {
 }
 
 fn truncate(value: &str, limit: usize) -> String {
-    let mut text = value.trim().to_string();
-    if text.len() > limit {
-        text.truncate(limit.saturating_sub(1));
-        text.push('…');
+    let text = value.trim();
+    let char_count = text.chars().count();
+
+    if char_count <= limit {
+        return text.to_string();
     }
-    text
+
+    if limit == 0 {
+        return String::new();
+    }
+
+    let mut truncated: String = text.chars().take(limit.saturating_sub(1)).collect();
+    truncated.push('…');
+    truncated
 }
 
 #[cfg(test)]

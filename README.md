@@ -12,7 +12,9 @@ Clone this repo and run
 cargo build
 ```
 
-or run directly with
+To get it running first see the [setup instructions](./docs/SETUP.md).
+
+If setup is complete, run the program with
 
 ```shell
 cargo run

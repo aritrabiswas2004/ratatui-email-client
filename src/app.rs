@@ -110,9 +110,9 @@ impl App {
         Self {
             exit: false,
             gmail: GmailClient {
-                client: reqwest::blocking::Client::new(),
-                access_token: String::new(),
-                sender_email: "test@example.com".into(),
+                pub client: reqwest::blocking::Client::new(),
+                pub access_token: String::new(),
+                pub sender_email: "test@example.com".into(),
             },
             inbox: vec![],
             selected: 0,

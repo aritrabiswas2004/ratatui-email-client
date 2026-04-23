@@ -6,6 +6,7 @@ use ratatui_email_client::{
 };
 
 fn main() -> Result<()> {
+    dotenvy::dotenv().ok();
     color_eyre::install()?;
 
     let session = auth::authenticate()?;

@@ -31,6 +31,14 @@ impl GmailClient {
         })
     }
 
+    pub(crate) fn new_stub() -> Self {
+        Self {
+            client: Client::new(),
+            access_token: String::new(),
+            sender_email: "test@example.com".into(),
+        }
+    }
+
     pub fn list_inbox(&self, limit: usize) -> Result<Vec<ThreadSummary>> {
         let mut threads = self.list_thread_refs(limit)?;
         let mut summaries = Vec::with_capacity(threads.len());

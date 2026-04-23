@@ -1,10 +1,13 @@
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
-use color_eyre::eyre::{Context, Result};
+use color_eyre::eyre::{Context, Result, eyre};
 use reqwest::blocking::Client;
 use serde::Deserialize;
 use serde_json::json;
 
-use crate::models::{ComposeDraft, MessageDetail, ThreadDetail, ThreadSummary};
+use crate::{
+    logging,
+    models::{ComposeDraft, MessageDetail, ThreadDetail, ThreadSummary},
+};
 
 const GMAIL_API_BASE: &str = "https://gmail.googleapis.com/gmail/v1/users/me";
 
@@ -12,14 +15,20 @@ const GMAIL_API_BASE: &str = "https://gmail.googleapis.com/gmail/v1/users/me";
 pub struct GmailClient {
     client: Client,
     access_token: String,
+    sender_email: String,
 }
 
 impl GmailClient {
-    pub fn new(access_token: String) -> Self {
-        Self {
-            client: Client::new(),
+    pub fn new(access_token: String) -> Result<Self> {
+        let client = Client::new();
+        let sender_email = fetch_sender_email(&client, &access_token)
+            .context("failed to fetch authenticated Gmail sender profile")?;
+
+        Ok(Self {
+            client,
             access_token,
-        }
+            sender_email,
+        })
     }
 
     pub fn list_inbox(&self, limit: usize) -> Result<Vec<ThreadSummary>> {
@@ -52,7 +61,7 @@ impl GmailClient {
     }
 
     pub fn send_message(&self, draft: &ComposeDraft) -> Result<()> {
-        let raw = build_raw_message(draft);
+        let raw = build_raw_message(draft, &self.sender_email);
         let mut payload = json!({
             "raw": raw,
         });
@@ -61,14 +70,28 @@ impl GmailClient {
             payload["threadId"] = json!(reply.thread_id);
         }
 
-        self.client
+        let response = self
+            .client
             .post(format!("{GMAIL_API_BASE}/messages/send"))
             .bearer_auth(&self.access_token)
             .json(&payload)
             .send()
-            .context("failed to send Gmail message")?
-            .error_for_status()
-            .context("Google rejected the message send request")?;
+            .context("failed to send Gmail message")?;
+
+        let status = response.status();
+        if !status.is_success() {
+            let body = response
+                .text()
+                .unwrap_or_else(|_| "<failed to read response body>".to_string());
+
+            logging::error(&format!("GMAIL_SEND_ERROR status={} body={}", status, body));
+
+            return Err(eyre!(
+                "Google rejected the message send request (status: {}). response_body={}",
+                status,
+                body
+            ));
+        }
 
         Ok(())
     }
@@ -93,6 +116,45 @@ impl GmailClient {
 
         Ok(response.threads.unwrap_or_default())
     }
+}
+
+fn fetch_sender_email(client: &Client, access_token: &str) -> Result<String> {
+    let response = client
+        .get(format!("{GMAIL_API_BASE}/profile"))
+        .bearer_auth(access_token)
+        .send()
+        .context("failed to fetch Gmail profile")?;
+
+    let status = response.status();
+    if !status.is_success() {
+        let body = response
+            .text()
+            .unwrap_or_else(|_| "<failed to read response body>".to_string());
+        logging::error(&format!(
+            "GMAIL_PROFILE_ERROR status={} body={}",
+            status, body
+        ));
+        return Err(eyre!(
+            "Google rejected the Gmail profile request (status: {}). response_body={}",
+            status,
+            body
+        ));
+    }
+
+    let profile = response
+        .json::<GmailProfile>()
+        .context("failed to parse Gmail profile response")?;
+
+    if profile.email_address.trim().is_empty() {
+        logging::error("GMAIL_PROFILE_ERROR empty emailAddress in profile response");
+        return Err(eyre!("Gmail profile returned an empty emailAddress"));
+    }
+
+    logging::info(&format!(
+        "Authenticated sender profile loaded: {}",
+        profile.email_address
+    ));
+    Ok(profile.email_address)
 }
 
 impl From<GmailThread> for ThreadDetail {
@@ -195,6 +257,12 @@ struct MessageHeader {
     value: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct GmailProfile {
+    #[serde(rename = "emailAddress")]
+    email_address: String,
+}
+
 impl From<GmailMessage> for MessageDetail {
     fn from(message: GmailMessage) -> Self {
         let payload = message.payload.as_ref();
@@ -289,13 +357,15 @@ fn normalize_text(input: &str) -> String {
     input.replace("\r\n", "\n").replace('\r', "\n")
 }
 
-fn build_raw_message(draft: &ComposeDraft) -> String {
+fn build_raw_message(draft: &ComposeDraft, sender_email: &str) -> String {
+    let from = sanitize_header(sender_email);
     let to = sanitize_header(&draft.to);
     let subject = sanitize_header(&draft.subject);
     let body = draft.body.replace("\r\n", "\n").replace('\r', "\n");
     let body = body.replace('\n', "\r\n");
 
     let mut message = String::new();
+    message.push_str(&format!("From: {from}\r\n"));
     message.push_str(&format!("To: {to}\r\n"));
     message.push_str(&format!("Subject: {subject}\r\n"));
     message.push_str("MIME-Version: 1.0\r\n");
@@ -340,12 +410,13 @@ mod tests {
             }),
         };
 
-        let raw = build_raw_message(&draft);
+        let raw = build_raw_message(&draft, "me@example.com");
         let decoded = URL_SAFE_NO_PAD
             .decode(raw.as_bytes())
             .expect("message should decode");
         let decoded = String::from_utf8(decoded).expect("message should be utf8");
 
+        assert!(decoded.contains("From: me@example.com"));
         assert!(decoded.contains("In-Reply-To: <id@example.com>"));
         assert!(decoded.contains("References: <old@example.com> <id@example.com>"));
     }
@@ -361,7 +432,7 @@ mod tests {
                     mime_type: "text/html".into(),
                     headers: vec![],
                     body: MessageBody {
-                        data: Some(URL_SAFE_NO_PAD.encode("<p>ignored</p>".as_bytes())),
+                        data: Some(URL_SAFE_NO_PAD.encode("<p>html body</p>".as_bytes())),
                     },
                     parts: vec![],
                 },
@@ -369,13 +440,14 @@ mod tests {
                     mime_type: "text/plain".into(),
                     headers: vec![],
                     body: MessageBody {
-                        data: Some(URL_SAFE_NO_PAD.encode("preferred".as_bytes())),
+                        data: Some(URL_SAFE_NO_PAD.encode("plain body".as_bytes())),
                     },
                     parts: vec![],
                 },
             ],
         };
 
-        assert_eq!(extract_body(&payload).as_deref(), Some("preferred"));
+        let body = extract_body(&payload).expect("body should be extracted");
+        assert_eq!(body, "plain body");
     }
 }

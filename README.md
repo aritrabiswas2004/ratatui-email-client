@@ -51,6 +51,6 @@ These keybindings are context-sensitive and depend on the active screen:
 - `Shift+Tab` — Move to previous field
 - `Enter` — In `To`/`Subject`: move to next field; in `Body`: insert newline
 - `Backspace` — Delete one character in active field
-- `Ctrl+s` — Send message
+- `Ctrl+s` or ` | ` — Send message
 - `Esc` — Cancel compose
 - `q` — Quit

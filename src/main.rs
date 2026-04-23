@@ -1,6 +1,9 @@
 use color_eyre::eyre::Result;
-
-use term_gui::{app::App, auth, gmail::GmailClient};
+use ratatui_email_client::{
+    app::App,
+    auth,
+    gmail::GmailClient
+};
 
 fn main() -> Result<()> {
     color_eyre::install()?;

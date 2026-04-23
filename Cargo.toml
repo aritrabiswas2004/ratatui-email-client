@@ -1,12 +1,13 @@
 [package]
-name = "term-gui"
+name = "ratatui-email-client"
 version = "0.1.0"
 edition = "2024"
-authors = ["Aritra Biswas <aritrabb@gmail.com>"]
+authors = ["Aritra Biswas <aritrabb@gmail.com>", "Arnav Waghdhare <arnavwaghdhare@gmail.com>"]
 license = "GPL-3"
+repository = "https://github.com/aritrabiswas2004/ratatui-email-client"
+readme = "README.md"
 
 [dependencies]
-color-eyre = "0.6.5"
 crossterm = "0.29.0"
 ratatui = "0.30.0"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
@@ -15,3 +16,4 @@ serde_json = "1"
 base64 = "0.22"
 rand = "0.8"
 sha2 = "0.10"
+color-eyre = "0.6.5"

@@ -4,7 +4,7 @@ Open source email client written in Rust.
 
 ## Build Instructions
 
-You need to have Rust and Cargo to run this project.
+You need to have latest versions Rust and Cargo to run this project.
 
 Clone this repo and run
 

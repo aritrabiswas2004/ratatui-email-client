@@ -203,30 +203,19 @@ impl App {
         let inner = block.inner(area);
         let inner_width = inner.width as usize;
         let inner_height = inner.height as usize;
-        let (line, col) = line_col_for_index(&compose.draft.body, compose.body_cursor);
-        let scroll_y = line.saturating_sub(inner_height.saturating_sub(1));
-        let scroll_x = col.saturating_sub(inner_width.saturating_sub(1));
-        let body_text = if compose.draft.body.is_empty() {
-            Text::from("")
-        } else {
-            Text::from(
-                compose
-                    .draft
-                    .body
-                    .split('\n')
-                    .map(|line| Line::from(line.to_string()))
-                    .collect::<Vec<_>>(),
-            )
-        };
-        let paragraph = Paragraph::new(body_text)
+        let (body_lines, cursor_row, cursor_col) =
+            wrap_body_for_display(&compose.draft.body, compose.body_cursor, inner_width);
+        let scroll_y = cursor_row.saturating_sub(inner_height.saturating_sub(1));
+        let paragraph = Paragraph::new(body_lines)
             .block(block)
-            .scroll((scroll_y as u16, scroll_x as u16));
+            .scroll((scroll_y as u16, 0))
+            .wrap(Wrap { trim: false });
         frame.render_widget(paragraph, area);
 
         if compose.field == ComposeField::Body && inner_width > 0 && inner_height > 0 {
             frame.set_cursor_position((
-                inner.x + (col - scroll_x) as u16,
-                inner.y + (line - scroll_y) as u16,
+                inner.x + cursor_col as u16,
+                inner.y + (cursor_row - scroll_y) as u16,
             ));
         }
     }
@@ -261,4 +250,45 @@ impl App {
             .wrap(Wrap { trim: false });
         frame.render_widget(footer, area);
     }
+}
+
+fn wrap_body_for_display(body: &str, cursor: usize, width: usize) -> (Text<'static>, usize, usize) {
+    let width = width.max(1);
+    let (cursor_line, cursor_col) = line_col_for_index(body, cursor);
+    let mut visual_lines = Vec::new();
+    let mut cursor_row = 0;
+    let mut cursor_visual_col = 0;
+
+    for (line_index, logical_line) in body.split('\n').enumerate() {
+        let chars = logical_line.chars().collect::<Vec<_>>();
+        let base_row = visual_lines.len();
+
+        if chars.is_empty() {
+            visual_lines.push(Line::from(String::new()));
+            if line_index == cursor_line {
+                cursor_row = base_row;
+                cursor_visual_col = 0;
+            }
+            continue;
+        }
+
+        for chunk_start in (0..chars.len()).step_by(width.max(1)) {
+            let chunk_end = (chunk_start + width).min(chars.len());
+            let chunk = chars[chunk_start..chunk_end].iter().collect::<String>();
+            visual_lines.push(Line::from(chunk));
+        }
+
+        if line_index == cursor_line {
+            cursor_row = base_row + (cursor_col / width);
+            cursor_visual_col = cursor_col % width;
+        }
+    }
+
+    if body.is_empty() {
+        visual_lines.push(Line::from(String::new()));
+        cursor_row = 0;
+        cursor_visual_col = 0;
+    }
+
+    (Text::from(visual_lines), cursor_row, cursor_visual_col)
 }

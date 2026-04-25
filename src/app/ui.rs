@@ -8,8 +8,8 @@ use ratatui::{
 
 use super::{
     App,
-    render::{line_for_field, render_summary_text, render_thread_text, truncate},
-    state::{ComposeField, View},
+    render::{render_summary_text, render_thread_text, truncate},
+    state::{ComposeField, View, line_col_for_index},
 };
 
 impl App {
@@ -112,32 +112,130 @@ impl App {
         frame.render_widget(block, area);
 
         let inner = area.inner(ratatui::layout::Margin::new(2, 1));
+        let footer_height = if self
+            .compose
+            .as_ref()
+            .and_then(|compose| compose.error.as_ref())
+            .is_some()
+        {
+            3
+        } else {
+            2
+        };
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3),
+                Constraint::Length(3),
+                Constraint::Min(3),
+                Constraint::Length(footer_height),
+            ])
+            .split(inner);
+
         let compose = self.compose.as_ref();
         let draft = compose.map(|compose| &compose.draft);
         let field = compose.map(|compose| compose.field);
 
-        let mut lines = Vec::new();
-        lines.push(line_for_field(
+        self.draw_compose_field(
+            frame,
+            chunks[0],
             "To",
             draft.map(|draft| draft.to.as_str()).unwrap_or(""),
+            compose.map(|compose| compose.to_cursor).unwrap_or(0),
             field == Some(ComposeField::To),
-        ));
-        lines.push(line_for_field(
+        );
+        self.draw_compose_field(
+            frame,
+            chunks[1],
             "Subject",
             draft.map(|draft| draft.subject.as_str()).unwrap_or(""),
+            compose.map(|compose| compose.subject_cursor).unwrap_or(0),
             field == Some(ComposeField::Subject),
-        ));
-        lines.push(Line::from("Body:"));
+        );
+        self.draw_compose_body(frame, chunks[2]);
+        self.draw_compose_footer(frame, chunks[3]);
+    }
 
-        let body_text = draft.map(|draft| draft.body.as_str()).unwrap_or("");
-        for line in body_text.lines() {
-            lines.push(Line::from(line.to_string()));
+    fn draw_compose_field(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        title: &str,
+        value: &str,
+        cursor: usize,
+        active: bool,
+    ) {
+        let block = Block::default()
+            .title(title)
+            .borders(Borders::ALL)
+            .border_style(if active {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default()
+            });
+        let inner = block.inner(area);
+        let inner_width = inner.width as usize;
+        let scroll_x = cursor.saturating_sub(inner_width.saturating_sub(1));
+        let paragraph = Paragraph::new(value.to_string()).block(block).scroll((0, scroll_x as u16));
+        frame.render_widget(paragraph, area);
+
+        if active && inner_width > 0 {
+            frame.set_cursor_position((
+                inner.x + (cursor - scroll_x) as u16,
+                inner.y,
+            ));
         }
+    }
 
-        lines.push(Line::from(""));
-        lines.push(Line::from(
-            "Tab/Enter move fields, Ctrl+S or F5 sends, Esc cancels, q quits.",
-        ));
+    fn draw_compose_body(&self, frame: &mut Frame, area: Rect) {
+        let Some(compose) = self.compose.as_ref() else {
+            return;
+        };
+
+        let block = Block::default()
+            .title("Body")
+            .borders(Borders::ALL)
+            .border_style(if compose.field == ComposeField::Body {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default()
+            });
+        let inner = block.inner(area);
+        let inner_width = inner.width as usize;
+        let inner_height = inner.height as usize;
+        let (line, col) = line_col_for_index(&compose.draft.body, compose.body_cursor);
+        let scroll_y = line.saturating_sub(inner_height.saturating_sub(1));
+        let scroll_x = col.saturating_sub(inner_width.saturating_sub(1));
+        let body_text = if compose.draft.body.is_empty() {
+            Text::from("")
+        } else {
+            Text::from(
+                compose
+                    .draft
+                    .body
+                    .split('\n')
+                    .map(|line| Line::from(line.to_string()))
+                    .collect::<Vec<_>>(),
+            )
+        };
+        let paragraph = Paragraph::new(body_text)
+            .block(block)
+            .scroll((scroll_y as u16, scroll_x as u16));
+        frame.render_widget(paragraph, area);
+
+        if compose.field == ComposeField::Body && inner_width > 0 && inner_height > 0 {
+            frame.set_cursor_position((
+                inner.x + (col - scroll_x) as u16,
+                inner.y + (line - scroll_y) as u16,
+            ));
+        }
+    }
+
+    fn draw_compose_footer(&self, frame: &mut Frame, area: Rect) {
+        let compose = self.compose.as_ref();
+        let mut lines = vec![Line::from(
+            "Tab cycles fields, Shift+Tab goes back, Ctrl+S sends, Esc cancels, q quits.",
+        )];
 
         if let Some(error) = compose.and_then(|compose| compose.error.as_deref()) {
             lines.push(Line::from(vec![
@@ -146,8 +244,8 @@ impl App {
             ]));
         }
 
-        let paragraph = Paragraph::new(Text::from(lines)).wrap(Wrap { trim: false });
-        frame.render_widget(paragraph, inner);
+        let paragraph = Paragraph::new(Text::from(lines));
+        frame.render_widget(paragraph, area);
     }
 
     fn draw_status(&self, frame: &mut Frame, area: Rect) {

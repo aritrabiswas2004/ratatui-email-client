@@ -154,22 +154,16 @@ impl App {
         match (key_event.code, key_event.modifiers) {
             (KeyCode::Char('q'), _) => self.exit = true,
             (KeyCode::Esc, _) => self.cancel_compose(),
-            (KeyCode::Tab, _) | (KeyCode::Enter, _)
-                if self
-                    .compose
-                    .as_ref()
-                    .map(|compose| compose.field != ComposeField::Body)
-                    .unwrap_or(false) =>
-            {
+            (KeyCode::Tab, _) => {
                 logging::info("ACTION compose field next");
                 if let Some(compose) = self.compose.as_mut() {
-                    compose.field = compose.field.next();
+                    compose.move_to_next_field();
                 }
             }
             (KeyCode::BackTab, _) => {
                 logging::info("ACTION compose field previous");
                 if let Some(compose) = self.compose.as_mut() {
-                    compose.field = compose.field.previous();
+                    compose.move_to_previous_field();
                 }
             }
             _ => {
@@ -178,41 +172,29 @@ impl App {
                 };
 
                 match (key_event.code, key_event.modifiers) {
+                    (KeyCode::Left, _) => compose.move_cursor_left(),
+                    (KeyCode::Right, _) => compose.move_cursor_right(),
+                    (KeyCode::Up, _) => compose.move_cursor_up(),
+                    (KeyCode::Down, _) => compose.move_cursor_down(),
+                    (KeyCode::Home, _) => compose.move_cursor_home(),
+                    (KeyCode::End, _) => compose.move_cursor_end(),
                     (KeyCode::Enter, _) => {
                         logging::info("ACTION compose body newline");
-                        compose.draft.body.push('\n');
+                        compose.insert_newline();
                     }
                     (KeyCode::Backspace, _) => {
                         logging::info("ACTION compose backspace");
-                        match compose.field {
-                            ComposeField::To => {
-                                compose.draft.to.pop();
-                            }
-                            ComposeField::Subject => {
-                                compose.draft.subject.pop();
-                            }
-                            ComposeField::Body => {
-                                compose.draft.body.pop();
-                            }
-                        }
+                        compose.backspace();
                     }
                     (KeyCode::Char(ch), KeyModifiers::NONE)
-                    | (KeyCode::Char(ch), KeyModifiers::SHIFT) => match compose.field {
-                        ComposeField::To => {
-                            logging::info("ACTION compose type To");
-                            compose.draft.to.push(ch);
-                        }
-                        ComposeField::Subject => {
-                            logging::info("ACTION compose type Subject");
-                            compose.draft.subject.push(ch);
-                        }
-                        ComposeField::Body => {
-                            logging::info("ACTION compose type Body");
-                            compose.draft.body.push(ch);
-                        }
-                    },
+                    | (KeyCode::Char(ch), KeyModifiers::SHIFT) => {
+                        logging::info("ACTION compose type active field");
+                        compose.insert_char(ch);
+                    }
                     _ => {}
                 }
+
+                compose.sync_cursors_to_text();
             }
         }
     }

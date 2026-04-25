@@ -127,6 +127,10 @@ impl App {
         self.compose = Some(ComposeState {
             draft: ComposeDraft::new(),
             field: ComposeField::To,
+            to_cursor: 0,
+            subject_cursor: 0,
+            body_cursor: 0,
+            body_preferred_col: None,
             origin: match self.view {
                 View::Thread => self
                     .selected_thread
@@ -153,6 +157,13 @@ impl App {
         self.compose = Some(ComposeState {
             draft: ComposeDraft::for_reply(thread),
             field: ComposeField::Body,
+            to_cursor: thread
+                .latest_message()
+                .map(|message| message.from.chars().count())
+                .unwrap_or(0),
+            subject_cursor: thread.subject.chars().count() + 4,
+            body_cursor: 0,
+            body_preferred_col: None,
             origin: ComposeOrigin::Thread(thread.id.clone()),
             error: None,
         });
@@ -222,6 +233,7 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
     use crate::models::{ComposeDraft, ThreadDetail};
     use state::{ComposeField, ComposeOrigin};
 
@@ -262,6 +274,10 @@ mod tests {
         app.compose = Some(ComposeState {
             draft: ComposeDraft::new(),
             field: ComposeField::To,
+            to_cursor: 0,
+            subject_cursor: 0,
+            body_cursor: 0,
+            body_preferred_col: None,
             origin: ComposeOrigin::Thread("thread".into()),
             error: None,
         });
@@ -271,5 +287,43 @@ mod tests {
 
         assert!(matches!(app.view, View::Thread));
         assert!(app.compose.is_none());
+    }
+
+    #[test]
+    fn tab_cycles_compose_fields() {
+        let mut app = App::new_for_testonly();
+        app.open_new_compose();
+
+        app.handle_compose_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(app.compose.as_ref().map(|compose| compose.field), Some(ComposeField::Subject));
+
+        app.handle_compose_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(app.compose.as_ref().map(|compose| compose.field), Some(ComposeField::Body));
+
+        app.handle_compose_key(KeyEvent::new(KeyCode::Tab, KeyModifiers::NONE));
+        assert_eq!(app.compose.as_ref().map(|compose| compose.field), Some(ComposeField::To));
+    }
+
+    #[test]
+    fn body_cursor_moves_and_inserts_at_cursor() {
+        let mut app = App::new_for_testonly();
+        app.open_new_compose();
+
+        {
+            let compose = app.compose.as_mut().expect("compose state");
+            compose.field = ComposeField::Body;
+            compose.draft.body = "hello\nworld".into();
+            compose.body_cursor = 5;
+        }
+
+        app.handle_compose_key(KeyEvent::new(KeyCode::Enter, KeyModifiers::NONE));
+        app.handle_compose_key(KeyEvent::new(KeyCode::Char('!'), KeyModifiers::SHIFT));
+        app.handle_compose_key(KeyEvent::new(KeyCode::Up, KeyModifiers::NONE));
+        app.handle_compose_key(KeyEvent::new(KeyCode::End, KeyModifiers::NONE));
+        app.handle_compose_key(KeyEvent::new(KeyCode::Char('?'), KeyModifiers::SHIFT));
+
+        let compose = app.compose.as_ref().expect("compose state");
+        assert_eq!(compose.draft.body, "hello?\n!\nworld");
+        assert_eq!(compose.body_cursor, 6);
     }
 }

@@ -5,21 +5,6 @@ use ratatui::{
 
 use crate::models::{ThreadDetail, ThreadSummary};
 
-pub fn line_for_field(label: &str, value: &str, active: bool) -> Line<'static> {
-    let style = if active {
-        Style::default()
-            .fg(Color::Yellow)
-            .add_modifier(Modifier::BOLD)
-    } else {
-        Style::default()
-    };
-
-    Line::from(vec![
-        Span::styled(format!("{label}: "), style),
-        Span::styled(value.to_string(), style),
-    ])
-}
-
 pub fn render_summary_text(summary: &ThreadSummary) -> Text<'static> {
     Text::from(vec![
         Line::from(vec![

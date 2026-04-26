@@ -1,3 +1,10 @@
+/**************************************************************
+SPDX License Identifier: GPL-3
+
+Authors: Arnav Waghdhare <arnavwaghdhare@gmail.com>
+***************************************************************/
+
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ThreadSummary {
     pub id: String,

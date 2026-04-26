@@ -1,3 +1,10 @@
+/**************************************************************
+SPDX License Identifier: GPL-3
+
+Authors: Arnav Waghdhare <arnavwaghdhare@gmail.com>
+***************************************************************/
+
+
 use std::{
     env, fs,
     io::{Read, Write},

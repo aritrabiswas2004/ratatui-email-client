@@ -1,3 +1,9 @@
+/**************************************************************
+SPDX License Identifier: GPL-3
+
+Authors: Arnav Waghdhare <arnavwaghdhare@gmail.com>
+***************************************************************/
+
 pub mod app;
 pub mod auth;
 pub mod gmail;

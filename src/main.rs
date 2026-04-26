@@ -1,3 +1,12 @@
+/**************************************************************
+SPDX License Identifier: GPL-3
+
+Main runtime for the application launch, authentication and run.
+
+Authors: Aritra Biswas <aritrabb@gmail.com>
+         Arnav Waghdhare <arnavwaghdhare@gmail.com>
+***************************************************************/
+
 use color_eyre::eyre::Result;
 use ratatui_email_client::{app::App, auth, gmail::GmailClient, logging};
 

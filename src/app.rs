@@ -1,3 +1,9 @@
+/**************************************************************
+SPDX License Identifier: GPL-3
+
+Authors: Arnav Waghdhare <arnavwaghdhare@gmail.com>
+***************************************************************/
+
 use std::{
     io,
     sync::mpsc::{Receiver, Sender, channel},

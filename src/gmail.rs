@@ -1,3 +1,9 @@
+/**************************************************************
+SPDX License Identifier: GPL-3
+
+Authors: Arnav Waghdhare <arnavwaghdhare@gmail.com>
+***************************************************************/
+
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use color_eyre::eyre::{Context, Result, eyre};
 use reqwest::blocking::Client;
